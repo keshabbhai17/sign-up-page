@@ -1,4 +1,3 @@
-// ✅ Load states
 window.onload = function () {
   fetch('https://csumb.space/api/allStatesAPI.php')
     .then(response => response.json())
@@ -14,105 +13,99 @@ window.onload = function () {
     .catch(error => console.error("Error loading states:", error));
 };
 
-// ✅ ZIP Code lookup
+// --- State dropdown population
+window.onload = () => {
+  fetch('https://csumb.space/api/allStatesAPI.php')
+    .then(res => res.json())
+    .then(states => {
+      const sd = document.getElementById('state');
+      states.forEach(s => {
+        const opt = document.createElement('option');
+        opt.value = s.usps;
+        opt.textContent = s.state;
+        sd.appendChild(opt);
+      });
+    })
+    .catch(err => console.error('Error loading states:', err));
+};
+
+// --- On ZIP blur: fetch location + county
 document.getElementById('zip').addEventListener('blur', function () {
   const zip = this.value.trim();
+  if (!zip) return;
 
-  fetch(`https://api.api-ninjas.com/v1/zipcode?zip=${zip}`, {
-    method: 'GET',
-    headers: {
-      'X-Api-Key': 'dEnCT9ll6bRONnPUbN2IUw==la0JdIZ4JVAppMos'
-    }
-  })
-    .then(response => response.json())
-    .then(data => {
-      if (Array.isArray(data) && data.length > 0) {
-        const location = data[0];
-        const lat = location.latitude;
-        const lon = location.longitude;
-
-        document.getElementById('city').value = location.city;
-        document.getElementById('lat').value = lat;
-        document.getElementById('lon').value = lon;
-
-        // Set state dropdown
-        const stateDropdown = document.getElementById('state');
-        stateDropdown.value = location.state;
-        stateDropdown.dispatchEvent(new Event('change'));
-
-        // ✅ Now get county from lat/lon using FCC API
-        fetch(`https://geo.fcc.gov/api/census/block/find?latitude=${lat}&longitude=${lon}&format=json`)
-          .then(res => res.json())
-          .then(fccData => {
-            const countyName = fccData.County.name;
-
-            // Wait a moment to let state dropdown populate counties
-            setTimeout(() => {
-              const countyDropdown = document.getElementById('county');
-              for (let i = 0; i < countyDropdown.options.length; i++) {
-                if (countyDropdown.options[i].text === countyName) {
-                  countyDropdown.selectedIndex = i;
-                  break;
-                }
-              }
-            }, 300); // Delay to wait for county list update
-
-          }).catch(() => alert("County lookup failed"));
-      } else {
-        alert("No location found for ZIP code.");
+  // Reset messages
+  document.getElementById('zipMessage').textContent = '';
+  
+  // Zippopotamus or API Ninjas? Using Zippopotam.us here:
+  fetch(`https://api.zippopotam.us/us/${zip}`)
+    .then(r => {
+      if (!r.ok) {
+        document.getElementById('zipMessage').textContent = 'Zip code not found';
+        throw new Error('ZIP not found');
       }
+      return r.json();
     })
-    .catch(error => {
-      console.error("ZIP API error:", error);
-      alert("Error fetching location details.");
+    .then(data => {
+      const p = data.places[0];
+      const { 'place name': city, latitude, longitude } = p;
+
+      document.getElementById('city').value = city;
+      document.getElementById('lat').value = latitude;
+      document.getElementById('lon').value = longitude;
+
+      const sd = document.getElementById('state');
+      const stateAbbr = data['places'][0]['state abbreviation'];
+      sd.value = stateAbbr;
+      sd.dispatchEvent(new Event('change'));
+
+      return fetch(`https://geo.fcc.gov/api/census/block/find?latitude=${latitude}&longitude=${longitude}&format=json`);
+    })
+    .then(r => r.json())
+    .then(fcc => {
+      const county = fcc.County.name;
+      const cd = document.getElementById('county');
+
+      for (let i=0; i<cd.options.length; i++) {
+        if (cd.options[i].text.includes(county)) {
+          cd.selectedIndex = i;
+          return;
+        }
+      }
+      // If not found, add it
+      const opt = document.createElement('option');
+      opt.value = county;
+      opt.textContent = county;
+      opt.selected = true;
+      cd.appendChild(opt);
+
+    })
+    .catch(err => console.error('ZIP–county chain failed:', err));
+});
+
+// --- Populate counties when state changes (fallback)
+document.getElementById('state').addEventListener('change', function () {
+  const st = this.value;
+  const cd = document.getElementById('county');
+  cd.innerHTML = '<option selected disabled>Loading counties…</option>';
+
+  fetch(`https://csumb.space/api/getCountiesAPI.php?state=${st}`)
+    .then(r => r.json())
+    .then(counties => {
+      cd.innerHTML = '';
+      counties.forEach(c => {
+        const opt = document.createElement('option');
+        opt.value = opt.textContent = c;
+        cd.appendChild(opt);
+      });
+    })
+    .catch(err => {
+      console.error('Error loading counties:', err);
+      cd.innerHTML = '<option>Error loading counties</option>';
     });
 });
 
 
-// ✅ Manual county data by state code
-const countiesByState = {
-  CA: ["Alameda", "Fresno", "Los Angeles", "Orange", "Riverside", "Sacramento", "San Bernardino", "San Diego", "San Francisco", "Santa Clara", "Ventura"],
-  TX: ["Bexar", "Collin", "Dallas", "Harris", "Tarrant", "Travis", "Williamson"],
-  NY: ["Albany", "Bronx", "Erie", "Kings", "Monroe", "New York", "Queens", "Richmond", "Suffolk", "Westchester"],
-  FL: ["Broward", "Duval", "Hillsborough", "Miami-Dade", "Orange", "Palm Beach", "Pinellas"],
-  IL: ["Cook", "DuPage", "Kane", "Lake", "Will"]
-};
-
-// ✅ County from State
-// ✅ Update counties manually when a state is selected
-document.getElementById('state').addEventListener('change', function () {
-  const selectedState = this.value;
-  const countyDropdown = document.getElementById('county');
-
-  countyDropdown.innerHTML = '';
-
-  const placeholder = document.createElement('option');
-  placeholder.textContent = 'Select a county';
-  placeholder.disabled = true;
-  placeholder.selected = true;
-  countyDropdown.appendChild(placeholder);
-
-  const counties = countiesByState[selectedState];
-
-  if (!counties) {
-    const option = document.createElement('option');
-    option.textContent = 'No counties found';
-    countyDropdown.appendChild(option);
-    return;
-  }
-
-  counties.forEach(county => {
-    const option = document.createElement('option');
-    option.value = county;
-    option.textContent = county;
-    countyDropdown.appendChild(option);
-  });
-});
-
-
-    
-
-// ✅ Username availability
 document.getElementById('username').addEventListener('blur', function () {
   const username = this.value;
   const msg = document.getElementById('usernameMessage');
@@ -125,7 +118,6 @@ document.getElementById('username').addEventListener('blur', function () {
   }
 });
 
-// ✅ Suggested password
 document.getElementById('password').addEventListener('focus', function () {
   fetch('https://webspace.csumb.edu/~lara4594/ajax/suggestedPwd.php?length=8')
     .then(response => response.text())
@@ -134,7 +126,6 @@ document.getElementById('password').addEventListener('focus', function () {
     });
 });
 
-// ✅ Form submission
 document.getElementById('signupForm').addEventListener('submit', function (e) {
   e.preventDefault();
   const pwd = document.getElementById('password').value;
