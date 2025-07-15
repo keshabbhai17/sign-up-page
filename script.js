@@ -85,23 +85,36 @@ document.getElementById('zip').addEventListener('blur', function () {
 
 // --- Populate counties when state changes (fallback)
 document.getElementById('state').addEventListener('change', function () {
-  const st = this.value;
-  const cd = document.getElementById('county');
-  cd.innerHTML = '<option selected disabled>Loading counties…</option>';
+  const selectedState = this.options[this.selectedIndex].text; // Use state name, not abbreviation
+  const countyDropdown = document.getElementById('county');
+  countyDropdown.innerHTML = '<option>Loading counties…</option>';
 
-  fetch(`https://csumb.space/api/getCountiesAPI.php?state=${st}`)
-    .then(r => r.json())
-    .then(counties => {
-      cd.innerHTML = '';
-      counties.forEach(c => {
+  const apiURL = `https://public.opendatasoft.com/api/records/1.0/search/?dataset=georef-united-states-of-america-county&q=&rows=1000&facet=ste_name&refine.ste_name=${encodeURIComponent(selectedState)}`;
+
+  fetch(apiURL)
+    .then(response => response.json())
+    .then(data => {
+      const counties = new Set();
+      data.records.forEach(record => {
+        const name = record.fields.coty_name;
+        if (name) counties.add(name);
+      });
+
+      // Clear and populate dropdown
+      countyDropdown.innerHTML = '';
+      [...counties].sort().forEach(c => {
         const opt = document.createElement('option');
         opt.value = opt.textContent = c;
-        cd.appendChild(opt);
+        countyDropdown.appendChild(opt);
       });
+
+      if (counties.size === 0) {
+        countyDropdown.innerHTML = '<option>No counties found</option>';
+      }
     })
     .catch(err => {
-      console.error('Error loading counties:', err);
-      cd.innerHTML = '<option>Error loading counties</option>';
+      console.error('County API failed:', err);
+      countyDropdown.innerHTML = '<option>Error loading counties</option>';
     });
 });
 
